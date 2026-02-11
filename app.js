@@ -1,10 +1,10 @@
-// TRX 120-Day App (Shows full workouts)
-// Stores everything locally in your phone browser (localStorage)
+// TRX 120-Day App (with set checkboxes)
+// Everything is saved locally (localStorage) on your phone.
 
-const ROTATION = ["LOWER", "CORE", "UPPER"];  // workout types rotate every workout day
+const ROTATION = ["LOWER", "CORE", "UPPER"];
 const TOTAL_DAYS = 120;
 
-// Phase by day number
+// ----- Phase logic -----
 function phaseForDay(dayNum){
   if (dayNum <= 28) return 1;
   if (dayNum <= 56) return 2;
@@ -12,7 +12,7 @@ function phaseForDay(dayNum){
   return 4;
 }
 
-// Workouts per phase
+// ----- Workouts -----
 const WORKOUTS = {
   1: {
     LOWER: [
@@ -94,75 +94,164 @@ const WORKOUTS = {
   }
 };
 
-// Utilities
+// ----- Helpers -----
 function $(id){ return document.getElementById(id); }
+
 function fmtDate(d){
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,'0');
   const day = String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
+
 function daysBetween(a, b){
   const ms = 24*60*60*1000;
   const aa = new Date(a); aa.setHours(12,0,0,0);
   const bb = new Date(b); bb.setHours(12,0,0,0);
   return Math.round((bb - aa) / ms);
 }
+
 function isWorkoutDay(dayNum){ return dayNum >= 1 && dayNum <= TOTAL_DAYS && (dayNum % 2 === 1); }
 function workoutIndex(dayNum){ return (dayNum + 1) / 2; } // 1..60
 function workoutTypeFromIndex(idx){ return ROTATION[(idx - 1) % ROTATION.length]; }
 
+function getJSON(key, fallback){
+  try { return JSON.parse(localStorage.getItem(key) || "") ?? fallback; }
+  catch { return fallback; }
+}
+function setJSON(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
+
+// Keys in localStorage
+const LS_START = "trxStartDate";
+const LS_VIEW  = "trxViewDate";
+const LS_DONE  = "trxDone";     // { dayX: true }
+const LS_CHECK = "trxChecks";   // { dayX: { "ex0_s1": true, ... } }
+
+// ----- App actions -----
 function saveDate(){
   const date = $("startDate").value;
   if(!date){ alert("Please select a start date."); return; }
-  localStorage.setItem("trxStartDate", date);
+  localStorage.setItem(LS_START, date);
   render();
 }
 
 function goToday(){
-  localStorage.setItem("trxViewDate", fmtDate(new Date()));
+  localStorage.setItem(LS_VIEW, fmtDate(new Date()));
   render();
 }
+
+function getDayNum(){
+  const start = localStorage.getItem(LS_START);
+  if(!start) return null;
+  const viewStr = localStorage.getItem(LS_VIEW) || fmtDate(new Date());
+  const dayNum = daysBetween(new Date(start), new Date(viewStr)) + 1;
+  return dayNum;
+}
+
+function sessionKey(dayNum){ return "day" + dayNum; }
 
 function markDone(){
-  const key = currentSessionKey();
-  if(!key) return;
-  const done = JSON.parse(localStorage.getItem("trxDone") || "{}");
-  done[key] = true;
-  localStorage.setItem("trxDone", JSON.stringify(done));
+  const dayNum = getDayNum();
+  if(!dayNum || !isWorkoutDay(dayNum)) return;
+
+  const done = getJSON(LS_DONE, {});
+  done[sessionKey(dayNum)] = true;
+  setJSON(LS_DONE, done);
   render();
 }
 
-function resetDone(){
-  const key = currentSessionKey();
-  if(!key) return;
-  const done = JSON.parse(localStorage.getItem("trxDone") || "{}");
-  delete done[key];
-  localStorage.setItem("trxDone", JSON.stringify(done));
+function undoDone(){
+  const dayNum = getDayNum();
+  if(!dayNum) return;
+
+  const done = getJSON(LS_DONE, {});
+  delete done[sessionKey(dayNum)];
+  setJSON(LS_DONE, done);
   render();
 }
 
-function currentSessionKey(){
-  const start = localStorage.getItem("trxStartDate");
-  if(!start) return null;
-  const view = localStorage.getItem("trxViewDate") || fmtDate(new Date());
-  const dayNum = daysBetween(new Date(start), new Date(view)) + 1;
-  if(dayNum < 1 || dayNum > TOTAL_DAYS) return null;
-  return "day" + dayNum;
+function resetChecks(){
+  const dayNum = getDayNum();
+  if(!dayNum) return;
+
+  const checksAll = getJSON(LS_CHECK, {});
+  delete checksAll[sessionKey(dayNum)];
+  setJSON(LS_CHECK, checksAll);
+
+  // Also undo DONE when you reset checks
+  const done = getJSON(LS_DONE, {});
+  delete done[sessionKey(dayNum)];
+  setJSON(LS_DONE, done);
+
+  render();
 }
 
+// Expose functions to HTML buttons
+window.saveDate = saveDate;
+window.goToday = goToday;
+window.markDone = markDone;
+window.undoDone = undoDone;
+window.resetChecks = resetChecks;
+
+// ----- Checkbox logic -----
+function setId(exIndex, setNumber){
+  return `ex${exIndex}_s${setNumber}`;
+}
+
+function toggleSet(dayKey, id, checked){
+  const checksAll = getJSON(LS_CHECK, {});
+  checksAll[dayKey] = checksAll[dayKey] || {};
+  checksAll[dayKey][id] = checked;
+  setJSON(LS_CHECK, checksAll);
+  updateDoneButtonState(); // live update
+}
+
+function allSetsChecked(dayKey, workoutPlan){
+  const checksAll = getJSON(LS_CHECK, {});
+  const dayChecks = checksAll[dayKey] || {};
+
+  for (let exIndex = 0; exIndex < workoutPlan.length; exIndex++){
+    const sets = workoutPlan[exIndex].sets;
+    for (let s = 1; s <= sets; s++){
+      const id = setId(exIndex, s);
+      if (!dayChecks[id]) return false;
+    }
+  }
+  return true;
+}
+
+function updateDoneButtonState(){
+  const dayNum = getDayNum();
+  const btn = $("doneBtn");
+  if(!btn) return;
+
+  if(!dayNum || !isWorkoutDay(dayNum)){
+    btn.disabled = true;
+    return;
+  }
+
+  const phase = phaseForDay(dayNum);
+  const idx = workoutIndex(dayNum);
+  const type = workoutTypeFromIndex(idx);
+  const plan = WORKOUTS[phase][type];
+  const dayKey = sessionKey(dayNum);
+
+  const complete = allSetsChecked(dayKey, plan);
+  btn.disabled = !complete; // only allow "done" when all sets are checked
+}
+
+// ----- Render -----
 function render(){
-  // Register service worker for offline (safe to call many times)
+  // Offline support
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(()=>{});
   }
 
-  // Set default view date (today)
-  if(!localStorage.getItem("trxViewDate")){
-    localStorage.setItem("trxViewDate", fmtDate(new Date()));
+  if(!localStorage.getItem(LS_VIEW)){
+    localStorage.setItem(LS_VIEW, fmtDate(new Date()));
   }
 
-  const start = localStorage.getItem("trxStartDate");
+  const start = localStorage.getItem(LS_START);
   if(start) $("startDate").value = start;
 
   if(!start){
@@ -170,18 +259,18 @@ function render(){
     $("phaseInfo").innerText = "";
     $("workoutInfo").innerHTML = "";
     $("doneInfo").innerText = "";
+    $("doneBtn").disabled = true;
     return;
   }
 
-  const startDate = new Date(start);
-  const view = new Date(localStorage.getItem("trxViewDate"));
-  const dayNum = daysBetween(startDate, view) + 1;
+  const dayNum = getDayNum();
 
   if(dayNum < 1){
     $("dayInfo").innerText = "This date is before Day 1.";
     $("phaseInfo").innerText = "";
     $("workoutInfo").innerHTML = "";
     $("doneInfo").innerText = "";
+    $("doneBtn").disabled = true;
     return;
   }
 
@@ -190,16 +279,19 @@ function render(){
     $("phaseInfo").innerText = "";
     $("workoutInfo").innerHTML = "";
     $("doneInfo").innerText = "";
+    $("doneBtn").disabled = true;
     return;
   }
 
   const phase = phaseForDay(dayNum);
   $("phaseInfo").innerText = `Phase ${phase} • Day ${dayNum} of ${TOTAL_DAYS}`;
 
-  const done = JSON.parse(localStorage.getItem("trxDone") || "{}");
-  const sessionKey = "day" + dayNum;
-  const isDone = !!done[sessionKey];
-  $("doneInfo").innerText = isDone ? "Saved: Workout marked as DONE ✅" : "Not marked done yet.";
+  const done = getJSON(LS_DONE, {});
+  const dayKey = sessionKey(dayNum);
+  const isDone = !!done[dayKey];
+  $("doneInfo").innerText = isDone
+    ? "Saved: Workout marked as DONE ✅"
+    : "Tip: Check all sets first. Then you can mark the workout as done.";
 
   // Rest day
   if(!isWorkoutDay(dayNum)){
@@ -215,6 +307,7 @@ function render(){
         <div class="meta">Hips, hamstrings, chest</div>
       </div>
     `;
+    $("doneBtn").disabled = true;
     return;
   }
 
@@ -225,20 +318,45 @@ function render(){
 
   const plan = WORKOUTS[phase][type];
 
-  let html = `
-    <div class="muted">Guidelines: controlled reps • stop with 2–3 reps left • rest 60–90s</div>
-  `;
+  // Current checks
+  const checksAll = getJSON(LS_CHECK, {});
+  const dayChecks = checksAll[dayKey] || {};
 
-  plan.forEach(ex => {
+  let html = `<div class="muted">Guidelines: controlled reps • stop with 2–3 reps left • rest 60–90s</div>`;
+
+  plan.forEach((ex, exIndex) => {
     html += `
       <div class="exercise">
         <div class="exName">${ex.name}</div>
         <div class="meta">${ex.sets} sets × ${ex.reps}</div>
+        <div class="setsGrid" id="grid_${exIndex}"></div>
       </div>
     `;
   });
 
   $("workoutInfo").innerHTML = html;
+
+  // Now create checkboxes (after HTML exists)
+  plan.forEach((ex, exIndex) => {
+    const grid = document.getElementById(`grid_${exIndex}`);
+    for(let s=1; s<=ex.sets; s++){
+      const id = setId(exIndex, s);
+      const checked = !!dayChecks[id];
+
+      const label = document.createElement("label");
+      label.className = "setPill";
+      label.innerHTML = `<input type="checkbox" ${checked ? "checked" : ""}> Set ${s}`;
+
+      const cb = label.querySelector("input");
+      cb.addEventListener("change", () => toggleSet(dayKey, id, cb.checked));
+
+      grid.appendChild(label);
+    }
+  });
+
+  // Enable/disable the DONE button depending on set completion
+  updateDoneButtonState();
 }
 
 render();
+               
