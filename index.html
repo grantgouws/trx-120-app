@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TRX 120 Day Plan</title>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111111">
+
+<style>
+body{
+  font-family: Arial, sans-serif;
+  margin:0;
+  padding:20px;
+  background:#111;
+  color:#fff;
+}
+.card{
+  background:#1a1a1a;
+  padding:20px;
+  border-radius:12px;
+  margin-bottom:20px;
+}
+button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border:none;
+  border-radius:8px;
+  font-weight:bold;
+  background:#22c55e;
+  color:#000;
+}
+input{
+  width:100%;
+  padding:10px;
+  margin-top:5px;
+  border-radius:8px;
+  border:none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+<h2>TRX 120-Day Plan</h2>
+
+<label>Start Date (Day 1)</label>
+<input type="date" id="startDate">
+
+<button onclick="saveDate()">Save Start Date</button>
+</div>
+
+<div class="card">
+<h3 id="dayInfo"></h3>
+<p id="workoutInfo"></p>
+<button onclick="markDone()">Mark Workout Done</button>
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
